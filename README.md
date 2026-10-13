@@ -1,7 +1,7 @@
 # Multi-Component Air Differential Detection and Graded Purification System
 # 多组分空气差分检测与分级净化装置
 
-> 🚧 **Status:** Patent Pending (发明专利申请中)  |  **Author:** 吴一鸣 (rissyouth)
+> 🚧 **Status:** Patent Pending (发明专利申请中)  |  **Author:** rissyouth
 
 ## 🌟 项目概览 (Project Overview)
 本项目针对现代工业与复杂室内环境，设计了一套具备**动态流体控制**与**靶向分级净化**的开源空气净化装置原型。系统采用前/后双路传感器进行差分闭环检测，并在流道中创新性地集成了**可调式特斯拉限速阀**。
@@ -15,11 +15,10 @@
 * **智能控温与节能 (Smart Energy Saving):** 基于污染浓度的 PWM 动态加热控温机制，达标后自动缩回特斯拉阀并关闭外围机电进入深度休眠。
 
 ## 📂 仓库结构 (Repository Structure)
-* `/docs`: 包含发明专利的《说明书》、《权利要求书》与系统附图。（待上传）
+* `/docs`: 包含发明专利的《说明书》与系统附图。
 * `/hardware`: 硬件物料清单（BOM）与机械结构设计参考。
 * `/firmware`: 基于 Arduino 架构的传感器数据采集、状态机控制与特斯拉阀机电协同源码。
 
 ## 🛠️ 技术栈 (Tech Stack)
 * **硬件:** Arduino Mega 2560, I2C, UART, PWM Motor Control
 * **软件:** C++ (Arduino IDE)
-* **机械:** Fusion 360 / Blender (3D Modeling)
