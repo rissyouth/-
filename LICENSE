@@ -1,23 +1,23 @@
-LICENSE AGREEMENT
+开源许可与专利声明
 
-IMPORTANT NOTICE
-This project, titled "Multi-Component Air Differential Detection and Graded Purification System," is protected by pending patents in the People's Republic of China.
-Invention Patent Application No.: 202611542863.0
-Utility Model Application No.: 202621553759.7
+重要提示
+本项目“一种多组分空气差分检测与分级净化装置”已向中华人民共和国国家知识产权局提交专利申请，并处于专利申请待批状态（Patent Pending）。
+发明专利申请号：202611542863.0
+实用新型专利申请号：202621553759.7
 
-TERMS AND CONDITIONS
+许可条款
 
-1. Non-Commercial Use: 
-You are free to view, download, and study the code, designs, and documentation provided in this repository for personal, educational, and non-commercial research purposes.
+1. 非商业性使用：
+允许个人出于学习、教育和非商业性科学研究的目的，查看、下载和研究本仓库提供的代码、设计和文档。
 
-2. Commercial Restrictions: 
-Any commercial use, manufacturing, production, sale, or monetization of this device, its core mechanisms (including but not limited to the dynamic Tesla valve flow control and differential purification logic), or derivative works requires explicit prior written permission from the patent applicant (Yiming Wu).
+2. 商业限制：
+未经专利申请人（吴一铭）事先明确的书面许可，严禁将本装置、其核心机制（包括但不限于动态特斯拉阀限速调流与差分净化逻辑）或其衍生作品用于任何商业用途、生产制造、销售或盈利。
 
-3. No Patent License Granted: 
-Access to this repository does not grant any express or implied license to the pending patents. All patent rights are strictly reserved.
+3. 专利权保留：
+访问本开源仓库不构成对上述专利申请的任何明示或暗示的许可。作者保留所有相关知识产权。
 
-4. Attribution: 
-If you reference or build upon this work for non-commercial purposes, you must provide appropriate attribution to the original author (Yiming Wu / rissyouth) and link back to this repository.
+4. 署名要求：
+如果在非商业用途中引用或基于本项目进行二次开发，必须标明原作者（吴一铭 / rissyouth）并附上本仓库的链接。
 
-CONTACT
-For commercial licensing inquiries or permissions, please contact the author directly.
+联系方式
+如需商业授权或许可，请直接联系原作者。
