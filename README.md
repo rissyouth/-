@@ -1,8 +1,10 @@
 # Multi-Component Air Differential Detection and Graded Purification System
 # 多组分空气差分检测与分级净化装置
 
-> 🚧 **Status:** Patent Pending (发明专利申请中)  |  **Author:** rissyouth
-
+> 🚧 **Status:** Patent Pending (Dual-Filed / 双报申请中)
+> * **Invention Patent App No. (发明专利):** 202611542863.0[cite: 26]
+> * **Utility Model App No. (实用新型):** 202621553759.7[cite: 27]
+> * **Date of Filing:** Oct 1, 2026
 ## 🌟 项目概览 (Project Overview)
 本项目针对现代工业与复杂室内环境，设计了一套具备**动态流体控制**与**靶向分级净化**的开源空气净化装置原型。系统采用前/后双路传感器进行差分闭环检测，并在流道中创新性地集成了**可调式特斯拉限速阀**。
 
