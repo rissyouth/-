@@ -1,0 +1,310 @@
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include <SoftwareSerial.h>
+#include <Servo.h>  
+
+// 屏幕与通信 
+LiquidCrystal_I2C lcd(0x27, 16, 2);  // 0x27，16列2行
+SoftwareSerial co2Serial(4, 5);      // CO2传感器软串口(RX=4,TX=5)
+
+// 原有传感器与基本报警引脚 
+const int PM_PIN = A0;       // PM2.5传感器模拟输入
+const int MQ7_PIN = A2;      // 一氧化碳传感器模拟输入
+const int HEATER_PIN = 9;    // MQ-7传感器内部加热控制
+const int PM_LED_PIN = 3;    // PM2.5传感器红外LED控制
+const int BUZZER_PIN = 10;   // 蜂鸣器报警
+const int LED_PIN = 11;      // LED报警灯
+const int FAN_RELAY_PIN = 12; // 进气风扇继电器控制 (原RELAY_PIN)
+
+// 特斯拉阀与净化模块
+const int PUMP_RELAY_PIN = 13;      // 微型泵(喷射过氧化氢)继电器
+const int ACTUATOR_IN1 = 7;         // 推杆电机伸出 (扩大管壁截面积)
+const int ACTUATOR_IN2 = 8;         // 推杆电机缩回
+const int BAFFLE_SERVO_PIN = 6;     // 特斯拉分流可变挡板舵机
+const int CATALYTIC_HEATER_PIN = 2; // 高温催化反应单元 PWM加热控温引脚
+
+// 安全阈值与传感器参数 
+const float PM25_GOOD_MAX = 12.0;  // PM2.5良好空气质量上限(μg/m³)
+const float PM25_SAFE_MAX = 35.0;  // PM2.5安全浓度上限(μg/m³)
+const float CO_GOOD_MAX = 9.0;     // CO良好空气质量上限(ppm)
+const float CO_SAFE_MAX = 35.0;    // CO安全浓度上限(ppm)
+
+#define RL_VALUE 10.0          // 负载电阻值(kΩ)
+#define RO_CLEAN_AIR 9.8       // 清洁空气中传感器电阻值(kΩ)
+#define CO2_PREHEAT_MS 300000  // CO2传感器预热时间(ms)
+
+// 系统控制变量 
+unsigned long alarmEndTime = 0;    // 报警延时结束时间戳
+Servo baffleServo;                 // 舵机对象
+bool isTeslaExpanded = false;      // 特斯拉阀状态锁（防止推杆电机反复通电卡死）
+
+
+void setup() {
+  Serial.begin(9600);
+  co2Serial.begin(9600);
+
+  // 初始化传感器硬件引脚
+  pinMode(HEATER_PIN, OUTPUT);
+  pinMode(PM_LED_PIN, OUTPUT);
+  digitalWrite(HEATER_PIN, HIGH);  // 启动MQ-7加热器
+  digitalWrite(PM_LED_PIN, HIGH);  
+
+  // 初始化报警与执行器引脚
+  pinMode(BUZZER_PIN, OUTPUT);
+  pinMode(LED_PIN, OUTPUT);
+  pinMode(FAN_RELAY_PIN, OUTPUT);
+  pinMode(PUMP_RELAY_PIN, OUTPUT);
+  pinMode(ACTUATOR_IN1, OUTPUT);
+  pinMode(ACTUATOR_IN2, OUTPUT);
+  pinMode(CATALYTIC_HEATER_PIN, OUTPUT);
+  
+  baffleServo.attach(BAFFLE_SERVO_PIN);
+  
+  // 初始状态设定 (全关/归零/节能模式)
+  digitalWrite(BUZZER_PIN, HIGH);    // 蜂鸣器关闭 (低电平触发)
+  digitalWrite(LED_PIN, LOW);        // LED关闭
+  digitalWrite(FAN_RELAY_PIN, LOW);  // 风扇关闭
+  digitalWrite(PUMP_RELAY_PIN, LOW); // 微型泵关闭
+  digitalWrite(ACTUATOR_IN1, LOW);   // 推杆断电
+  digitalWrite(ACTUATOR_IN2, LOW);
+  analogWrite(CATALYTIC_HEATER_PIN, 0); // 催化加热关闭
+  baffleServo.write(0);              // 特斯拉阀挡板全开(零阻力)
+
+  // LCD启动与预热
+  lcd.init();
+  lcd.backlight();
+  lcd.print("System Starting");
+  
+  preheatSensors();
+  lcd.clear();
+}
+
+
+
+
+
+
+void loop() {
+  // 读取环境数据
+  float pm25 = readPM25();
+  float co = readCO();
+  int co2 = readCO2();
+
+  // 专利闭环控制算法 (差分响应、控温节能与特斯拉阀流阻控制)
+  patentAirQualityControl(pm25, co);
+
+  // UI显示与串口日志输出
+  displayData(pm25, co, co2);
+  logSensorData(pm25, co, co2);
+
+  delay(2000);  // 采样周期 2000ms
+}
+
+
+
+
+
+
+// 核心闭环控制算法 
+void patentAirQualityControl(float pm25, float co) {
+  bool needFan = false;
+  bool needPump = false;
+  bool needAlarm = false;
+  bool needSlowDown = false; 
+  int heaterPwm = 0; // 高温催化加热的PWM变量 (0-255)
+
+  // 一氧化碳污染响应判定 (协同启动微型泵与催化加热)
+  if (co > CO_SAFE_MAX) {
+    needFan = true;
+    needPump = true;    
+    needAlarm = true;
+    needSlowDown = true;     // 严重污染，需要特斯拉阀扩容降速以彻底催化
+    heaterPwm = 255;         // 100%满功率加热催化
+    alarmEndTime = millis() + 30000;
+  }
+  else if (co > CO_GOOD_MAX) {
+    needFan = true;
+    needPump = true; 
+    heaterPwm = 128;         // 半功率保温加热，轻度污染节能处理
+  }
+
+  // PM2.5及二氧化硫污染响应判定 (碱性吸附)
+  if (pm25 > PM25_SAFE_MAX) {
+    needFan = true;
+    needAlarm = true;
+    needSlowDown = true;     // 严重雾霾，利用特斯拉阀涡流阻力增加滤芯接触时间
+    alarmEndTime = millis() + 30000;
+  }
+  else if (pm25 > PM25_GOOD_MAX) {
+    needFan = true;
+    // 仅粉尘轻度污染时，不开泵不开加热，纯物理/化学吸附净化，实现节能
+  }
+
+  // 延时安全状态与节能复位判定
+  bool stillAlarm = (millis() < alarmEndTime) || needAlarm;
+
+  if (!stillAlarm && pm25 <= PM25_GOOD_MAX && co <= CO_GOOD_MAX) {
+    // 污染彻底清除且30秒排空期结束，进入深度节能模式
+    needFan = false;        
+    needPump = false;       
+    heaterPwm = 0;          
+    needSlowDown = false;   
+  } else {
+    // 如果仍在报警延时中（哪怕瞬时浓度已降），保持风机抽风以防管路残留
+    needFan = true;
+  }
+
+  // 4. 执行外围机电输出
+  digitalWrite(FAN_RELAY_PIN, needFan ? HIGH : LOW);
+  digitalWrite(PUMP_RELAY_PIN, needPump ? HIGH : LOW);
+  analogWrite(CATALYTIC_HEATER_PIN, heaterPwm); // 输出PWM动态控温
+
+  digitalWrite(LED_PIN, stillAlarm ? HIGH : LOW);
+  digitalWrite(BUZZER_PIN, stillAlarm ? LOW : HIGH); 
+
+
+
+
+  // 特斯拉阀动态 Q=v*A 调阻与状态锁逻辑 (防止电机烧毁)
+  if (needSlowDown && !isTeslaExpanded) {
+    // 动作：需要降速且当前未扩容，执行展开动作
+    digitalWrite(ACTUATOR_IN1, HIGH);
+    digitalWrite(ACTUATOR_IN2, LOW);
+    baffleServo.write(45);           // 舵机打角，建立回流阻力
+    delay(300);                      // 等待推杆走完行程
+    digitalWrite(ACTUATOR_IN1, LOW); // 断电锁死电机
+    isTeslaExpanded = true;          // 更新状态锁
+  } 
+  else if (!needSlowDown && isTeslaExpanded) {
+    // 动作：恢复安全且当前处于扩容状态，执行收缩复位动作
+    digitalWrite(ACTUATOR_IN1, LOW);
+    digitalWrite(ACTUATOR_IN2, HIGH);
+    baffleServo.write(0);            // 挡板顺向归零
+    delay(300);                      // 等待推杆缩回
+    digitalWrite(ACTUATOR_IN2, LOW); // 断电锁死电机
+    isTeslaExpanded = false;         // 更新状态锁
+  }
+}
+
+
+
+
+
+// 传感器读取与辅助函数 
+
+void preheatSensors() {
+  // MQ-7 预热
+  lcd.setCursor(0, 1);
+  lcd.print("Preheating CH4...");
+  for (int i = 0; i < 30; i++) {
+    delay(1000);
+    if (i % 5 == 0) lcd.print(".");
+  }
+  
+  // CO2 预热倒计时
+  lcd.clear();
+  lcd.print("CO2 Preheating");
+  for (int i = 30; i < 300; i++) {
+    delay(1000);
+    if (i % 10 == 0) {
+      lcd.setCursor(0, 1);
+      int remain = 300 - i;
+      lcd.print(remain / 60);
+      lcd.print("m ");
+      lcd.print(remain % 60);
+      lcd.print("s   ");
+    }
+  }
+}
+
+void displayData(float pm25, float co, int co2) {
+  lcd.clear();
+  
+  lcd.setCursor(0, 0);
+  lcd.print("PM:");
+  lcd.print((int)pm25);
+  if (pm25 > PM25_SAFE_MAX) {
+    lcd.print("!!");  
+  } 
+  else if (pm25 > PM25_GOOD_MAX) {
+    lcd.print("!");   
+  }
+
+  lcd.setCursor(0, 1);
+  lcd.print("CO:");
+  lcd.print((int)co);
+  if (co > CO_SAFE_MAX) {
+    lcd.print("!!");  
+  } 
+  else if (co > CO_GOOD_MAX) {
+    lcd.print("!");   
+  }
+
+  lcd.print(" CO2:");
+  if (co2 >= 0) {
+    lcd.print(co2);
+  } 
+  else {
+    lcd.print("ERR"); 
+  }
+}
+
+void logSensorData(float pm25, float co, int co2) {
+  Serial.print("PM2.5: ");
+  Serial.print(pm25);
+  Serial.print(" ug/m3 | ");
+  
+  Serial.print("CO: ");
+  Serial.print(co);
+  Serial.print(" ppm | ");
+  
+  Serial.print("CO2: ");
+  if (co2 >= 0) {
+    Serial.print(co2);
+  } 
+  else {
+    Serial.print("ERROR");
+  }
+  Serial.println(" ppm");
+}
+
+float readPM25() {
+  digitalWrite(PM_LED_PIN, LOW);
+  delayMicroseconds(280);
+  int val = analogRead(PM_PIN);
+  delayMicroseconds(40);
+  digitalWrite(PM_LED_PIN, HIGH);
+  delayMicroseconds(9680);
+  
+  float voltage = val * (5.0 / 1024.0);
+  float density = (0.17 * voltage - 0.1) * 1000;
+  return max(0.0, density);  
+}
+
+float readCO() {
+  int val = analogRead(MQ7_PIN);
+  float rs = RL_VALUE * ((1023.0 / val) - 1);
+  return 10.0 * pow(rs / RO_CLEAN_AIR, -2.0);
+}
+
+int readCO2() {
+  // 发送读取指令
+  byte cmd[6] = {0x2C, 0x01, 0x00, 0x00, 0x00, 0x2D};
+  co2Serial.write(cmd, 6);
+  
+  delay(100);
+  
+  if (co2Serial.available() >= 6) {
+    byte buffer[6];
+    for (int i = 0; i < 6; i++) {
+      buffer[i] = co2Serial.read();
+    }
+    
+    // 校验和
+    byte checksum = buffer[0] + buffer[1] + buffer[2] + buffer[3] + buffer[4];
+    if (checksum == buffer[5]) {
+      return constrain((buffer[1] << 8) | buffer[2], 350, 2000);
+    }
+  }
+  return -1;  
+}
